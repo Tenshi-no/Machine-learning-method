@@ -3,6 +3,9 @@ import numpy as np
 from sklearn.preprocessing import OrdinalEncoder, OneHotEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy import stats
 
 # --- 1. ГЕНЕРАЦИЯ ДАТАСЕТА (ваш код) ---
 np.random.seed(42)
@@ -281,18 +284,287 @@ scaling_table = pd.DataFrame({
 print(scaling_table.round(2))
 print('-'*50)
 
-print("РЕАЛИЗАЦИЯ НОВОГО ПРИЗНАКА")
-
-# Признак income_per_year_exp = income / years_experience (если years_experience > 0)
-df['income_per_year_exp'] = np.where(df['years_experience'] > 0, df['income']/df['years_experience'], 0)# избегаем деления на 0
+print("РЕАЛИЗАЦИЯ НОВЫХ ПРИЗНАКОВ (feature engineering)")
+# Признак 1: Income per year experience
+# income / years_experience, только если years_experience > 0
+df['income_per_year_exp'] = np.where(
+    df['years_experience'] > 0, df['income'] / df['years_experience'], 0 #Если опыт 0 или отрицательный, то ставим 0
+)
 df['income_per_year_exp'] = df['income_per_year_exp'].round(2)
-# Бинарный признак high_income = income > median(income)
-income_median = df['income'].median()
-df['high_income'] = (df['income'] > income_median).astype(int)
-# Признак уровня образования
-df['education_level'] = pd.cut(df["education_encoded"], bins=[-1, 1.5, 2.5 ,5], labels=['Низкий','Средний','Высокий'])
-print("Строки с новыми признаками")
+print("Признак income_per_year_exp создан")
 
-preview_cols = ['income', 'years_experience', 'income_per_year_exp', 'high_income', 'education', 'education_level']
-print(df[preview_cols].head(5))
+# Признак 2: бинарный high_income
+#1 если доход выше медианы, иначе 0
+income_median = df['income'].median()
+df["high_income"] = (df['income'] > income_median).astype(int)
+print(f"Признак high_income создан (медиана дохода = {income_median:.2f})")
+
+print("-"*50)
+
+print("Задание 7.  ОЦЕНКА ПЛЛОТНОСТЕЙ ВЕРОЯТНОСТИ ПРИЗНАКОВ")
+
+# 1. Гистограммы + KDE до логарифмирования
+
+print("-"*50)
+print("Задание 8. ОЦЕНКА ЗНАЧИМОСТИ ПРИЗНАКОВ")
+print("1. Гистограммы и KDE для ключевых числовых признаков")
+# Выбираем признаки для анализа
+features_to_analyze  = ['age', 'income', 'years_experience', 'income_per_year_exp']
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+axes = axes.flatten()
+
+for idx, feat in enumerate(features_to_analyze):
+    sns.histplot(
+        df[feat],
+        kde=True,           # ядерная оценка плотности
+        bins=30,            # количество бинов
+        color='steelblue',
+        ax=axes[idx]
+    )
+    axes[idx].set_title(f'Распределение {feat}', fontsize=12)
+    axes[idx].set_xlabel(feat)
+    axes[idx].set_ylabel('Частота')
+
+plt.tight_layout()
+plt.show()
+
+
+# 2. ОЦЕНКА АСИММЕТРИИ И ЭКСЦЕССА ДО ПРЕОБРАЗОВАНИЯ
+
+print("\n2. Асимметрия (skew) и эксцесс (kurtosis) ДО логарифмирования")
 print("-" * 60)
+
+skew_before = {}
+kurt_before = {}
+
+for feat in features_to_analyze:
+    skew_before[feat] = stats.skew(df[feat])
+    kurt_before[feat] = stats.kurtosis(df[feat])  # excess kurtosis (нормальное = 0)
+
+stats_before_df = pd.DataFrame({
+    'Признак': features_to_analyze,
+    'Skew (асимметрия)': [round(skew_before[f], 4) for f in features_to_analyze],
+    'Kurtosis (эксцесс)': [round(kurt_before[f], 4) for f in features_to_analyze]
+})
+
+print(stats_before_df.to_string(index=False))
+print()
+# 3. ЛОГАРИФМИЧЕСКОЕ ПРЕОБРАЗОВАНИЕ ДЛЯ ПРИЗНАКОВ С СИЛЬНОЙ АСИММЕТРИЕЙ
+
+print("3. Логарифмическое преобразование для признаков с сильной асимметрией")
+print("-" * 60)
+
+# Определяем признаки с сильной асимметрией (|skew| > 1)
+highly_skewed = [f for f in features_to_analyze if abs(skew_before[f]) > 1]
+print(f"Признаки с сильной асимметрией (|skew| > 1): {highly_skewed}")
+print()
+
+if len(highly_skewed) > 0:
+    # Применяем log1p(x) = log(1 + x) — безопасно даже если есть нули
+    df_log = df.copy()
+    for feat in highly_skewed:
+        df_log[f'{feat}_log'] = np.log1p(df_log[feat])
+    
+    print(f"Созданы признаки: {[f'{f}_log' for f in highly_skewed]}")
+    print()
+    
+    # Гистограммы ПОСЛЕ логарифмирования
+    fig, axes = plt.subplots(1, len(highly_skewed), figsize=(6 * len(highly_skewed), 5))
+    if len(highly_skewed) == 1:
+        axes = [axes]
+    
+    for idx, feat in enumerate(highly_skewed):
+        sns.histplot(
+            df_log[f'{feat}_log'],
+            kde=True,
+            bins=30,
+            color='darkorange',
+            ax=axes[idx]
+        )
+        axes[idx].set_title(f'Распределение {feat} (log1p)', fontsize=12)
+        axes[idx].set_xlabel(f'{feat}_log')
+        axes[idx].set_ylabel('Частота')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Асимметрия и эксцесс ПОСЛЕ логарифмирования
+    print("Асимметрия и эксцесс ПОСЛЕ логарифмирования:")
+    print("-" * 60)
+    
+    skew_after = {}
+    kurt_after = {}
+    
+    for feat in highly_skewed:
+        skew_after[feat] = stats.skew(df_log[f'{feat}_log'])
+        kurt_after[feat] = stats.kurtosis(df_log[f'{feat}_log'])
+    
+    stats_after_df = pd.DataFrame({
+        'Признак': [f'{f}_log' for f in highly_skewed],
+        'Skew (после)': [round(skew_after[f], 4) for f in highly_skewed],
+        'Kurtosis (после)': [round(kurt_after[f], 4) for f in highly_skewed]
+    })
+    
+    print(stats_after_df.to_string(index=False))
+    print()
+    
+    # Сводная таблица ДО и ПОСЛЕ
+    print("Сводная таблица: skew/kurtosis ДО и ПОСЛЕ логарифмирования")
+    print("-" * 60)
+    
+    comparison_table = pd.DataFrame({
+        'Признак': highly_skewed,
+        'Skew ДО': [round(skew_before[f], 4) for f in highly_skewed],
+        'Skew ПОСЛЕ': [round(skew_after[f], 4) for f in highly_skewed],
+        'Kurtosis ДО': [round(kurt_before[f], 4) for f in highly_skewed],
+        'Kurtosis ПОСЛЕ': [round(kurt_after[f], 4) for f in highly_skewed]
+    })
+    
+    print(comparison_table.to_string(index=False))
+else:
+    print("Признаков с сильной асимметрией не обнаружено.")
+    comparison_table = None
+
+print()
+
+
+# 4. СРАВНЕНИЕ РАСПРЕДЕЛЕНИЙ ПО ЦЕЛЕВОЙ ПЕРЕМЕННОЙ (is_churn)
+
+print("4. Наложение KDE для классов is_churn=0 и is_churn=1")
+print("-" * 60)
+
+# Выбираем 2-3 признака для сравнения
+compare_features = ['age', 'income', 'years_experience']
+
+fig, axes = plt.subplots(1, len(compare_features), figsize=(6 * len(compare_features), 5))
+if len(compare_features) == 1:
+    axes = [axes]
+
+for idx, feat in enumerate(compare_features):
+    # Класс 0 (не ушел)
+    sns.kdeplot(
+        df[df['is_churn'] == 0][feat],
+        label='is_churn = 0 (не ушел)',
+        color='blue',
+        fill=True,
+        alpha=0.4,
+        ax=axes[idx]
+    )
+    # Класс 1 (ушел)
+    sns.kdeplot(
+        df[df['is_churn'] == 1][feat],
+        label='is_churn = 1 (ушел)',
+        color='red',
+        fill=True,
+        alpha=0.4,
+        ax=axes[idx]
+    )
+    axes[idx].set_title(f'Распределение {feat} по классам', fontsize=12)
+    axes[idx].set_xlabel(feat)
+    axes[idx].set_ylabel('Плотность')
+    axes[idx].legend()
+
+plt.tight_layout()
+plt.show()
+
+print("\n" + "=" * 60)
+print("ВЫВОДЫ ПО АНАЛИЗУ РАСПРЕДЕЛЕНИЙ")
+print("=" * 60)
+
+print("""
+1. Асимметрия признаков:
+""")
+
+for feat in features_to_analyze:
+    skew_val = skew_before[feat]
+    if abs(skew_val) > 1:
+        direction = "правосторонняя" if skew_val > 0 else "левосторонняя"
+        print(f"   • {feat}: сильная {direction} асимметрия (skew={skew_val:.4f})")
+    elif abs(skew_val) > 0.5:
+        direction = "правосторонняя" if skew_val > 0 else "левосторонняя"
+        print(f"   • {feat}: умеренная {direction} асимметрия (skew={skew_val:.4f})")
+    else:
+        print(f"   • {feat}: распределение близко к симметричному (skew={skew_val:.4f})")
+
+
+
+
+
+#1. Корелляция Пирсона между числовыми признаками и целевой переменной
+print("Корреляция Пирсона между числовыми признаками и целевой перменной")
+#Собираем все числовые признаки + целевую переменную в одну таблицу
+df_for_corr = X.copy()
+df_for_corr['is_churn'] = y
+
+#Считаем матрицу корреляции Пирсона
+corr_matrix = df_for_corr.corr(method='pearson')
+
+#Берём только столбец с is_churn, это корреляция каждого признака с целью
+corr_with_target = corr_matrix['is_churn'].drop('is_churn')
+
+#Сортируем по абсолютному значению (от самой сильной связи к слабой)
+corr_with_target_sorted = corr_with_target.abs().sort_values(ascending=False)
+corr_with_target_sorted = corr_with_target[corr_with_target_sorted.index]
+print("Корелляция признаков с целевой переменной")
+print(corr_with_target_sorted.round(4))
+print()
+
+#2. Тепловая карта коррелляций
+
+print("Тепловая карта коррелляций")
+plt.figure(figsize=(12, 8))
+
+# Рисуем heatmap всей матрицы корреляций
+sns.heatmap(
+    corr_matrix,
+    annot=True,          # показывать числа в ячейках
+    fmt='.2f',           # формат чисел (2 знака после запятой)
+    cmap='coolwarm',     # цветовая схема: синий (отриц.) — белый — красный (полож.)
+    center=0,            # центр colormap на 0
+    vmin=-1, vmax=1,     # границы шкалы
+    square=True,         # квадратные ячейки
+    linewidths=0.5       # тонкие линии между ячейками
+)
+
+plt.title('Тепловая карта корреляций Пирсона', fontsize=14)
+plt.tight_layout()
+plt.show()
+
+#3. Выделение признаков с высокой корреляцией
+
+print("Признаки с высокой корреляцией с целевой переменной (r > 0.3)")
+
+threshold = 0.3
+high_corr_with_target = corr_with_target[corr_with_target.abs() > threshold]
+
+if len(high_corr_with_target) > 0:
+    print(f"Признаки с корреляцией > {threshold}:")
+    for feat, val in high_corr_with_target.items():
+        direction = 'полжительная' if val > 0 else 'отрицательная'
+        print(f"   {feat:30s}  r = {val:+.4f}  ({direction})")
+else:
+    print(f" Ни один признак не имеет корреляции с целью выше {threshold}")
+    print("  Это может означать, что признаки слабо информативны для предсказания churn,")
+    print("  либо связь нелинейная (Пирсон её не ловит).")
+
+print()
+
+#Сильно коррелирующие друг с другом признаки
+print("Признаки, сильно коррелирующие ДРУГ С ДРУГОМ (r > 0.5, без диагонали):")
+
+#Создаём маску: убираем диагональ и нижний треугольник (чтобы не дублировать пары)
+mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+
+#Ищем пары с |r|>0.5
+high_corr_pairs = []
+features = corr_matrix.columns
+for i in range(len(features)):
+    for j in range (i + 1, len(features)):
+        r = corr_matrix.iloc[i, j]
+        if abs(r) > 0.5:
+            high_corr_pairs.append((features[i], features[j], r))
+    
+if len(high_corr_pairs) > 0:
+    for f1, f2, r in high_corr_pairs:
+        print(f" {f1:30s} ↔ {f2:30s}  r = {r:+.4f}")
+print()
