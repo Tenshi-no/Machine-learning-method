@@ -7,7 +7,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
 
-# --- 1. ГЕНЕРАЦИЯ ДАТАСЕТА (ваш код) ---
+# --- 1. ГЕНЕРАЦИЯ ДАТАСЕТА
 np.random.seed(42)
 n = 500
 data = {
