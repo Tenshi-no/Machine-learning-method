@@ -40,10 +40,10 @@ mult_noise = np.random.normal(loc=1.0, scale=0.15, size=num_samples)
 y_with_noise = y_clean * mult_noise
 
 dataset = pd.DataFrame({
-        'x1_quadratic': x1,
-        'x2_exponential': x2,
-        'x3_sinusoidal': x3,
-        'target_y': y_with_noise
+        'x1_quadratic': x1, # Квадратичный признак
+        'x2_exponential': x2, # Экспненциальный признак
+        'x3_sinusoidal': x3, # Синусоидальный признак (sin(x))
+        'target_y': y_with_noise # Целевая переменная с шумом
     })
 
 print("Первые 5 строк нелинейной выборки с помехами")
@@ -51,7 +51,7 @@ print(dataset.head())
 
 #-------------------------------------ЗАДАНИЕ 3----------------------------
 # Матрица признаков Х и целевая переменная У
-x = np.stack([x1, x2, x3], axis = 1)
+x = np.stack([x1, x2, x3], axis = 1) #если поставить 0, то будет построчная склейка
 y = y_with_noise
 
 # Разделяем на обучающую и тестовую выборку
@@ -66,15 +66,15 @@ kr = KernelReg(endog=y_train, exog=x_train, var_type='ccc')
 # Метод возвращает предсказание и предельные эффекты
 y_pred, _ = kr.fit(x_test)
 
-# print(f"score относительно зашумленных данных: {r2_score(y_test, y_pred)}")
-# print(f"score относительно истинной чистой формулы: {r2_score(y_clean_test, y_pred)}")
-# print('='*70)
+print(f"score относительно зашумленных данных: {r2_score(y_test, y_pred)}")
+print(f"score относительно истинной чистой формулы: {r2_score(y_clean_test, y_pred)}")
+print('='*70)
 
-# print("Сравнение результатов (Надарая-Ватсон):")
-# for i in range(5):
-#     print(f"Объект {i+1}: Истинный y = {y_clean_test[i]} | "
-#           f"Искаженный y = {y_test[i]} | "
-#           f"Предсказание Надарая-Ватсона = {y_pred[i]}")
+print("Сравнение результатов (Надарая-Ватсон):")
+for i in range(5):
+    print(f"Объект {i+1}: Истинный y = {y_clean_test[i]} | "
+          f"Искаженный y = {y_test[i]} | "
+          f"Предсказание Надарая-Ватсона = {y_pred[i]}")
 
 #-------------------------------------ЗАДАНИЕ 4----------------------------
 # Расчет классической среднеквадратичной ошибки
@@ -100,12 +100,12 @@ y_clean_max = y_clean_test.max()
 y_clean_min = y_clean_test.min()
 E_clean = (1 / s) * (errors_clean_sum / (y_clean_max - y_clean_min))
 
-# print("ЗАДАНИЕ 4: ОЦЕНКА АДЕКВАТНОСТИ МОДЕЛИ")
-# print(f"MSE (относительно зашумленных данных): {mse_noise}")
-# print(f"MSE (относительно чистой формулы): {mse_clean}")
-# print("-"* 60)
-# print(f"Ошибка E (относительно зашумленных данных):  {E_noisy}")
-# print(f"Ошибка E (относительно чистой формулы): {E_clean}")
+print("ЗАДАНИЕ 4: ОЦЕНКА АДЕКВАТНОСТИ МОДЕЛИ")
+print(f"MSE (относительно зашумленных данных): {mse_noise}")
+print(f"MSE (относительно чистой формулы): {mse_clean}")
+print("-"* 60)
+print(f"Ошибка E (относительно зашумленных данных):  {E_noisy}")
+print(f"Ошибка E (относительно чистой формулы): {E_clean}")
 
 #-------------------------------------ЗАДАНИЕ 5----------------------------
 # Задаем сетку возможных значений параметра размытости h
@@ -139,36 +139,71 @@ plt.legend()
 plt.show()
 
 #-------------------------------------ЗАДАНИЕ 6----------------------------
-# Чтобы график оставался читаемым и не превращался в "кашу", 
-# выберем подмножество точек (например, первые 60 точек из тестовой выборки)
+# Определяем список значений h для сравнения
+h_values = [0.05, 0.15, 0.30, 0.60, 1.00]
+
+# Цвета для каждой линии (чтобы было визуально различимо)
+colors = ['red', 'orange', 'green', 'blue', 'purple']
+
+# Подготавливаем данные для графика (первые 60 точек)
 num_plot_points = 60
+points_indices = np.arange(1, num_plot_points + 1)
+actual_noisy = y_test[:num_plot_points]
 
-# Подготавливаем данные для осей
-points_indices = np.arange(1, num_plot_points + 1) # Номера точек по оси абсцисс
-actual_noisy = y_test[:num_plot_points]            # Выборочные зашумленные значения
-predicted_reg = y_pred[:num_plot_points]          # Полученные по оценке регрессии
+# Создаём график
+plt.figure(figsize=(14, 7))
 
-# Строим график для Задания 6
-plt.figure(figsize=(12, 6))
+# Рисуем реальные зашумлённые точки (фон)
+plt.scatter(points_indices, actual_noisy, 
+            color='gray', alpha=0.4, edgecolors='k', 
+            s=30, label='Реальные данные (с шумом)', zorder=1)
 
-# Показываем выборочные зашумленные значения в виде точек
-plt.scatter(points_indices, actual_noisy, color='gray', alpha=0.7, edgecolors='k', label='Выборочные значения (с помехами)')
+# Для каждого значения h обучаем модель и строим предсказания
+results = []  # Сохраняем результаты для вывода метрик
 
-# Показываем оценку регрессии в виде сглаженной линии или соединенных точек
-plt.plot(points_indices, predicted_reg, color='red', marker='x', linestyle='-', linewidth=2, label='Оценка регрессии (Надарая-Ватсон)')
+for h, color in zip(h_values, colors):
+    # Создаём модель ядерной регрессии
+    # bandwidth=[h, h, h] - одинаковая ширина для всех 3 признаков
+    kr = KernelReg(endog=y_train, 
+                   exog=x_train, 
+                   var_type='ccc',
+                   bw=[h, h, h])  # <-- здесь задаём h
+    
+    # Делаем предсказания на тестовой выборке
+    y_pred_h, _ = kr.fit(x_test)
+    
+    # Сохраняем метрики
+    mse_clean = mean_squared_error(y_clean_test, y_pred_h)
+    mse_noisy = mean_squared_error(y_test, y_pred_h)
+    r2_clean = r2_score(y_clean_test, y_pred_h)
+    r2_noisy = r2_score(y_test, y_pred_h)
+    
+    results.append({
+        'h': h,
+        'mse_clean': mse_clean,
+        'mse_noisy': mse_noisy,
+        'r2_clean': r2_clean,
+        'r2_noisy': r2_noisy
+    })
+    
+    # Рисуем линию предсказаний
+    plt.plot(points_indices, y_pred_h[:num_plot_points], 
+             color=color, 
+             linewidth=2, 
+             label=f'h = {h:.2f} (R² чистые={r2_clean:.3f})',
+             zorder=2)
 
-plt.title('Задание 6: Сравнение выборочных значений и полученной оценки регрессии', fontsize=12)
-plt.xlabel('Номер точки (Индекс наблюдения)', fontsize=10)
-plt.ylabel('Значение зависимой переменной Y', fontsize=10)
+# Оформляем график
+plt.title('Задание 6: Сравнение оценок регрессии при разных значениях h', fontsize=13, fontweight='bold')
+plt.xlabel('Номер точки (Индекс наблюдения)', fontsize=11)
+plt.ylabel('Значение зависимой переменной Y', fontsize=11)
 plt.grid(True, linestyle=':', alpha=0.6)
-plt.legend()
+plt.legend(loc='upper right', fontsize=9)
 plt.tight_layout()
 plt.show()
 
 #-------------------------------------ЗАДАНИЕ 7----------------------------
 y_final_pred, _ = kr.fit(x_test)
-
-# Превращаем в нампай-массивы для надёжности
 y_test_arr = np.array(y_test)
 y_clean_test_arr = np.array(y_clean_test)
 
@@ -193,7 +228,7 @@ print("-" * 50)
 
 # 4. Проверяем локальную точность на случайных трех объектах из теста
 print("Выборочная проверка предсказаний для трех случайных объектов:")
-indices = [10, 50, 100] # Берем объекты под номерами 10, 50 и 100
+indices = [15, 30, 70] 
 for idx in indices:
     print(f"Объект №{idx}:")
     print(f"Реальное зашумленное значение Y: {y_test_arr[idx]}")
@@ -295,15 +330,10 @@ for size in sample_sizes:
         research_results.append({
             'Объем выборки': size,
             'Тип ядра': kernel_name,
-            'R² (Закон)': round(r2_clean, 4),
+            'R^2 (Закон)': round(r2_clean, 4),
             'Ошибка E (%)': round(E_clean * 100, 2)
         })
         
         print(f"Выборка: {size:4d} | Ядро: {kernel_name:10s} | "
               f"Bandwidth: {bandwidth.mean():.3f} | "
               f"R^2: {r2_clean:.4f}, E: {E_clean*100:.2f}%")
-
-# Итоговая таблица
-df_research = pd.DataFrame(research_results)
-print("\nИтоговая сравнительная таблица исследований:")
-print(df_research.to_string(index=False))
