@@ -6,6 +6,58 @@ from sklearn.metrics import r2_score, mean_squared_error
 from statsmodels.nonparametric.kernel_regression import KernelReg
 import matplotlib.pyplot as plt
 
+# Гауссовское ядро
+def gaussian_kernel(u):
+    return (1 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * u**2)
+# Треугольное ядро
+def triangular_kernel(u):
+    u = np.abs(u)
+    return np.where(u <= 1, 1 - u, 0)
+# Трикубическое ядро
+def tricube_kernel(u):
+    u = np.abs(u)
+    return np.where(u < 1, (1 - u**3)**3, 0)
+
+# Словарь ядер для удобного перебора
+kernel_functions = {
+    'gaussian': gaussian_kernel,
+    'triangular': triangular_kernel,
+    'tricube': tricube_kernel
+}
+
+def nadaraya_watson_predict(X_train, y_train, X_test, kernel_func, bandwidth):
+    predictions = []
+    
+    for x_test in X_test:
+        # Вычисляем расстояния от тестовой точки до всех обучающих
+        # Используем евклидово расстояние, нормированное на bandwidth
+        distances = np.sqrt(np.sum(((X_train - x_test) / bandwidth)**2, axis=1))
+        
+        # Вычисляем веса через ядро
+        weights = kernel_func(distances)
+        
+        # Предсказание - взвешенное среднее
+        if np.sum(weights) > 0:
+            prediction = np.sum(weights * y_train) / np.sum(weights)
+        else:
+            prediction = np.mean(y_train)  # берем среднее, так как это самое безопасное предсказание
+        
+        predictions.append(prediction)
+    
+    return np.array(predictions)
+
+def select_bandwidth(X_train):
+   
+    n = len(X_train) # Количество объектов в выборке
+    d = X_train.shape[1]  # размерность
+    const_silverman = 1.06
+    
+    # Правило Сильвермана для многомерного случая
+    std = np.std(X_train, axis=0)
+    bandwidth = const_silverman * std * (n ** (-1 / (d + 4)))
+    
+    return bandwidth
+
 # Фиксируем рандомное значение, а не получаем каждый раз новое
 np.random.seed(1) 
 
@@ -25,10 +77,10 @@ y_clean = (x1*x1) + np.exp(x2) - 4 *np.sin(x3)
 
 # Собираем данные в датафрейм
 dataset = pd.DataFrame({
-        'x1_quadratic': x1,
-        'x2_exponential': x2,
-        'x3_sinusoidal': x3,
-        'target_y': y_clean
+        'x1_quadratic': x1,# Квадратичный признак
+        'x2_exponential': x2, # Экспненциальный признак
+        'x3_sinusoidal': x3, # Синусоидальный признак (sin(x))
+        'target_y': y_clean # Целевая переменная с шумом
     })
 
 print("Первые 5 строк нелинейной выборки")
@@ -39,15 +91,15 @@ mult_noise = np.random.normal(loc=1.0, scale=0.15, size=num_samples)
 # Мультипликативная помеха
 y_with_noise = y_clean * mult_noise
 
-dataset = pd.DataFrame({
-        'x1_quadratic': x1, # Квадратичный признак
-        'x2_exponential': x2, # Экспненциальный признак
-        'x3_sinusoidal': x3, # Синусоидальный признак (sin(x))
-        'target_y': y_with_noise # Целевая переменная с шумом
+dataset_noise = pd.DataFrame({
+        'x1_quadratic': x1, 
+        'x2_exponential': x2, 
+        'x3_sinusoidal': x3, 
+        'target_y': y_with_noise
     })
 
 print("Первые 5 строк нелинейной выборки с помехами")
-print(dataset.head())
+print(dataset_noise.head())
 
 #-------------------------------------ЗАДАНИЕ 3----------------------------
 # Матрица признаков Х и целевая переменная У
@@ -112,41 +164,54 @@ print(f"Ошибка E (относительно чистой формулы): {
 # 1. start — начало отсчета (первое число в массиве).
 # 2. stop — конец отсчета 
 # 3. num — сколько всего чисел (точек) нужно сгенерировать отрезке
-
 h_grid = np.linspace(0.05, 1.0, 20)
-crit_value = []
 
-#Для построения графика критерия будем считать, что для всех трех признаков параметр размытости меняется одинаково
-for h in h_grid:
-    kr_fixed = KernelReg(endog=y_train, exog=x_train, var_type = 'ccc', bw = [h, h, h])
-    y_pred_fixed, _ = kr_fixed.fit(x_test)
-    #Считаем значение криетерия (в даном случае MSE на тестовой выборке)
-    mse_h = mean_squared_error(y_test, y_pred_fixed)
-    crit_value.append(mse_h)
+plt.figure(figsize=(12, 6))
+optimal_h_result = {}
+
+# Перебираем каждое ядро
+for kernel_name, kernel_func in kernel_functions.items():
+    crit_value = []
     
-#Определяем наилучший h по графику
-best_h = h_grid[np.argmin(crit_value)]
-print(f"Оптимальный параметр размытости согласно сетке: h = {best_h}")
-#График
-plt.figure(figsize=(10, 5))
-plt.plot(h_grid, crit_value, color='blue', marker='o', linestyle='-', linewidth=2, label='Значение критерия (MSE)')
-plt.axvline(best_h, color='red', linestyle='--', label=f'Оптимальный h ({best_h:.2f})')
-plt.title('Задание 5: Зависимость критерия качества от параметра размытости', fontsize=12)
-plt.xlabel('Параметр размытости (Bandwidth, h)', fontsize=10)
-plt.ylabel('Значение критерия (MSE)', fontsize=10)
+    for h in h_grid:
+        y_pred_fixed = nadaraya_watson_predict(x_train, y_train, x_test, kernel_func, h)
+        mse_h = mean_squared_error(y_test, y_pred_fixed)
+        crit_value.append(mse_h)
+    
+    # Определяем наилучший h для текущего ядра
+    best_h_idx = np.argmin(crit_value) # Использую argmin чтобы найти индекс минимального значения
+    best_h = h_grid[best_h_idx] # Сохраняю в переменную именно значение
+    best_mse = crit_value[best_h_idx] # Минимальная оценка
+    
+    # Сохраняем результат
+    optimal_h_result[kernel_name] = (best_h, best_mse)
+    
+    plt.plot(h_grid, crit_value, marker='o', linestyle='-', linewidth=2, 
+             label=f'{kernel_name} (min MSE={best_mse:.4f} при h={best_h:.2f})')
+    plt.axvline(best_h, color='red', linestyle=':', alpha=0.7)
+
+plt.title('Задание 5: Зависимость MSE от параметра размытости (h) для разных ядер', fontsize=13)
+plt.xlabel('Параметр размытости (Bandwidth, h)', fontsize=11)
+plt.ylabel('Значение критерия (MSE на тесте)', fontsize=11)
 plt.grid(True, linestyle=':', alpha=0.6)
-plt.legend()
+plt.legend(loc='upper right', fontsize=10)
+plt.tight_layout()
 plt.show()
 
+# Вывод сводной таблицы
+print("="*70)
+print("ОПТИМАЛЬНЫЕ ПАРАМЕТРЫ РАЗМЫТОСТИ (h) ДЛЯ РАЗНЫХ ЯДЕР:")
+print("-"*70)
+for k_name, (h_opt, mse_opt) in optimal_h_result.items():
+    print(f"Ядро: {k_name:15s} | Оптимальный h = {h_opt:.2f} | Минимальный MSE = {mse_opt:.4f}")
+print("="*70)  
+
 #-------------------------------------ЗАДАНИЕ 6----------------------------
-# Определяем список значений h для сравнения
-h_values = [0.05, 0.15, 0.30, 0.60, 1.00]
+h_values = [0.30, 1.00]
 
-# Цвета для каждой линии (чтобы было визуально различимо)
-colors = ['red', 'orange', 'green', 'blue', 'purple']
+colors = ['green', 'blue']
 
-# Подготавливаем данные для графика (первые 60 точек)
-num_plot_points = 60
+num_plot_points = 60 # Количество точек
 points_indices = np.arange(1, num_plot_points + 1)
 actual_noisy = y_test[:num_plot_points]
 
@@ -237,60 +302,6 @@ for idx in indices:
     print(f"Абсолютная ошибка восстановления закона: {np.abs(y_clean_test_arr[idx] - y_final_pred[idx])}")
     
 #-------------------------------------ЗАДАНИЕ 8----------------------------
-
-def gaussian_kernel(u):
-    """Гауссовское ядро"""
-    return (1 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * u**2)
-
-def triangular_kernel(u):
-    """Треугольное ядро"""
-    u = np.abs(u)
-    return np.where(u <= 1, 1 - u, 0)
-
-def tricube_kernel(u):
-    """Трикубическое ядро"""
-    u = np.abs(u)
-    return np.where(u < 1, (1 - u**3)**3, 0)
-
-# Словарь ядер для удобного перебора
-kernel_functions = {
-    'gaussian': gaussian_kernel,
-    'triangular': triangular_kernel,
-    'tricube': tricube_kernel
-}
-
-def nadaraya_watson_predict(X_train, y_train, X_test, kernel_func, bandwidth):
-    predictions = []
-    
-    for x_test in X_test:
-        # Вычисляем расстояния от тестовой точки до всех обучающих
-        # Используем евклидово расстояние, нормированное на bandwidth
-        distances = np.sqrt(np.sum(((X_train - x_test) / bandwidth)**2, axis=1))
-        
-        # Вычисляем веса через ядро
-        weights = kernel_func(distances)
-        
-        # Предсказание - взвешенное среднее
-        if np.sum(weights) > 0:
-            prediction = np.sum(weights * y_train) / np.sum(weights)
-        else:
-            prediction = np.mean(y_train)  # fallback
-        
-        predictions.append(prediction)
-    
-    return np.array(predictions)
-
-def select_bandwidth(X_train, y_train, kernel_func, method='silverman'):
-   
-    n = len(X_train)
-    d = X_train.shape[1]  # размерность
-    
-    # Правило Сильвермана для многомерного случая
-    std = np.std(X_train, axis=0)
-    bandwidth = 1.06 * std * (n ** (-1 / (d + 4)))
-    
-    return bandwidth
-
 np.random.seed(1)
 
 sample_sizes = [200, 500, 1000, 2000]
